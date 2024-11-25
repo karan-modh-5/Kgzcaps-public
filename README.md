@@ -58,7 +58,7 @@ It provides seamless automatic configuration, supports both DHCP and static IP m
   - `ssl`, `socket`, `struct` (for network communication and HTTPS server)
   - `argparse`, `ipaddress` (for input validation)
 - **TLS Certificates**:
-  - Place your `tls_cert.pem` and `tls_key.pem` files in the script directory.
+  - Place your `tls_cert.pem` and `tls_key.pem` files in the script "kgzcaps" directory.
 
 ---
 
