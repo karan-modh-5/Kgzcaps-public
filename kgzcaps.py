@@ -258,7 +258,7 @@ def generate_config_file(mac_address, extension, SIP_AUTH_PASS ):
         <P2348>1</P2348>
         <P2397>1</P2397>
         <P26073>0</P26073>
-        <P78>1</P78>
+        <P78>0</P78>
         <P8350>1</P8350>
         <P8351>2</P8351>
         <P8446>0</P8446>
@@ -292,7 +292,7 @@ def generate_config_file_for_static_mode(mac_address, extension, SIP_AUTH_PASS ,
         <P2348>1</P2348>
         <P2397>1</P2397>
         <P26073>0</P26073>
-        <P78>1</P78>
+        <P78>0</P78>
         <P8350>1</P8350>
         <P8351>2</P8351>
         <P8446>0</P8446>
@@ -358,7 +358,7 @@ def send_notify(addr, call_id, cseq, port, from_tag, to_tag, site):
         f"Event: ua-profile\r\n"
         f"Content-Length: 34\r\n"
         f"\r\n"
-        f"https://{INTERFACE_IP}:{HTTPS_PORT}/kgzcaps/\r\n"
+        f"https://{INTERFACE_IP}:{HTTPS_PORT}/zccgi/\r\n"
     )
 
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as notify_socket:
@@ -454,7 +454,7 @@ class ConfigFileHandler(SimpleHTTPRequestHandler):
         log_verbose(f"Requested path: {self.path}")
         log_verbose(f"Normalized path: {requested_file}")
 
-        if requested_file.startswith("kgzcaps/cfg") and requested_file.endswith(".xml"):
+        if requested_file.startswith("zccgi/cfg") and requested_file.endswith(".xml"):
             mac_address = requested_file.split("cfg")[-1].replace(".xml", "")
             log_verbose(f"Extracted MAC address: {mac_address}")
 
