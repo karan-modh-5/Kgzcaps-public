@@ -40,8 +40,8 @@ RESPONSE_PORT = 6060
 HTTPS_PORT = 8089
 
 # Paths to TLS Certificate and Key
-TLS_CERT = "tls_cert.pem"  # Path to your certificate
-TLS_KEY = "tls_key.pem"    # Path to your private key
+TLS_CERT = "kgzcaps/tls_cert.pem"  # Path to your certificate
+TLS_KEY = "kgzcaps/tls_key.pem"    # Path to your private key
 
 # Function to check if input is numeric
 def is_numeric(input_str):
