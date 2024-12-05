@@ -14,7 +14,7 @@ import ssl
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from threading import Thread
 
-version = "1.1.0" # Version of the script
+version = "1.1.1" # Version of the script
 
 # Variables for storing input parameters
 IPPBX_IP = ""
@@ -42,6 +42,19 @@ HTTPS_PORT = 8089
 # Paths to TLS Certificate and Key
 TLS_CERT = "kgzcaps/tls_cert.pem"  # Path to your certificate
 TLS_KEY = "kgzcaps/tls_key.pem"    # Path to your private key
+
+# DHCP Function
+leases = {}
+dhcpd_start_ip = ""
+dhcpd_end_ip = ""
+
+ALLOWED_OUIS = [
+    "00:0B:82",  # Example Grandstream OUI
+    "00:0B:46",
+    "AC:CF:23",
+    "C0:74:AD",
+    "EC:74:D7",
+]
 
 # Function to check if input is numeric
 def is_numeric(input_str):
@@ -75,6 +88,9 @@ parser.add_argument("-a", help="Starting Account")
 parser.add_argument("-d", help="DNS IP Address")
 parser.add_argument("-i", type=int, help="IP Phones mode")
 parser.add_argument("-V", "--verbose", action="store_true", help="Enable verbose mode")
+parser.add_argument("-D", "--dhcpd", action="store_true", help="Enable DHCP Server mode")
+parser.add_argument("-DS", help="Starting DHCP IP Address")
+parser.add_argument("-DE", help="End DHCP IP Address")
 
 # Parse the command-line arguments
 args = parser.parse_args()
@@ -120,6 +136,14 @@ if args.i:
     if args.i in (1, 2):
         ip_mode = args.i
 
+if args.DS:
+    if is_valid_ip(args.DS):
+        dhcpd_start_ip = args.DS
+        
+if args.DE:
+    if is_valid_ip(args.DE):
+        dhcpd_end_ip = args.DE
+        
 # Verbose flag
 VERBOSE_MODE = args.verbose
 
@@ -497,8 +521,179 @@ def https_server(site):
     log_verbose(f"HTTPs Server listening on port {HTTPS_PORT}")
     httpd.serve_forever()
 
+def is_grandstream_device(mac_address):
+    """Check if the MAC address belongs to a Grandstream device."""
+    mac_prefix = mac_address.upper()[:8]
+    return mac_prefix in ALLOWED_OUIS
+
+def get_local_ip(network_segment, network):
+    """
+    Automatically fetch the server's IP that matches the given network segment.
+    """
+    hostname = socket.gethostname()
+    local_ips = socket.gethostbyname_ex(hostname)[2]
+    for ip in local_ips:
+        if ipaddress.IPv4Address(ip) in network:
+            return ip
+    raise ValueError("No local IP matches the specified network segment.")
+
+
+def generate_ip_pool(network_segment, dhcpd_start_ip, dhcpd_end_ip, network):
+    """
+    Generate a list of individual IPs within the specified range in the given network segment.
+    """
+    start = ipaddress.IPv4Address(dhcpd_start_ip)
+    end = ipaddress.IPv4Address(dhcpd_end_ip)
+
+    if start not in network or end not in network:
+        raise ValueError("Start or end IP is outside the specified network segment.")
+
+    # Generate all individual IPs within the range
+    return [str(ipaddress.IPv4Address(ip)) for ip in range(int(start), int(end) + 1)]
+
+def build_dhcp_packet(transaction_id, client_ip, server_ip, mac_address, lease_time, dhcpd_subnet_mask, dhcpd_broadcast_address, network, dhcpd_gateway_ip, dhcpd_dns_ip, message_type):
+
+    # Ensure transaction_id is an integer
+    if not isinstance(transaction_id, int):
+        raise ValueError(f"Transaction ID must be an integer, got {type(transaction_id)}")
+
+    # Convert IPs to binary format
+    client_ip_bin = socket.inet_aton(client_ip)
+    server_ip_bin = socket.inet_aton(server_ip)
+    subnet_mask_bin = socket.inet_aton(dhcpd_subnet_mask)  # Default subnet mask
+    broadcast_address_bin = socket.inet_aton(dhcpd_broadcast_address)  # Replace with appropriate broadcast
+    router_bin = socket.inet_aton(str(dhcpd_gateway_ip))  # Default router is the server IP
+    dns_server_bin = socket.inet_aton(dhcpd_dns_ip)  # Default DNS server is the server IP
+    lease_time_bin = struct.pack("!I", int(lease_time))  # Lease time
+    renewal_time_bin = struct.pack("!I", int(lease_time // 2))  # Renewal time (T1)
+    rebinding_time_bin = struct.pack("!I", int(lease_time * 0.875))  # Rebinding time (T2)
+
+    # DHCP header
+    dhcp_header = struct.pack(
+        "!BBBBIHHIIII16s64s128s4s",
+        2,  # Message type: Boot Reply
+        1,  # Hardware type: Ethernet
+        6,  # Hardware address length
+        0,  # Hops
+        transaction_id,  # Transaction ID
+        0,  # Seconds elapsed
+        0,  # Bootp flags
+        0,  # Client IP address (usually 0 for initial response)
+        struct.unpack("!I", client_ip_bin)[0],  # Your (client) IP address
+        struct.unpack("!I", server_ip_bin)[0],  # Next server IP address
+        0,  # Relay agent IP address
+        bytes.fromhex(mac_address.replace(':', '')),  # Client MAC address
+        b'\x00' * 64,  # Server host name
+        b'\x00' * 128,  # Boot file name
+        b'\x63\x82\x53\x63'  # Magic cookie: DHCP
+    )
+
+    offer_bit = (
+        b'\x35\x01\x02'  # DHCP Message Type: Offer
+    )
+    
+    ack_bit = (
+        b'\x35\x01\x05'  # DHCP Message Type: ACK
+    )
+    
+    # DHCP options
+    other_dhcp_options = (
+        b'\x36\x04' + server_ip_bin  # DHCP Server Identifier
+        + b'\x33\x04' + lease_time_bin  # Lease Time
+        + b'\x3a\x04' + renewal_time_bin  # Renewal Time Value (T1)
+        + b'\x3b\x04' + rebinding_time_bin  # Rebinding Time Value (T2)
+        + b'\x01\x04' + subnet_mask_bin  # Subnet Mask
+        + b'\x1c\x04' + broadcast_address_bin # Broadcast Address
+        + b'\x03\x04' + router_bin  # Router
+        + b'\x06\x04' + dns_server_bin  # DNS Server
+        + b'\x0f' + bytes([len("lan")]) + b'lan'  # Domain Name (adjust as needed)
+        + b'\xff'  # End option
+    )
+
+    if message_type == 1:
+        padding = b'\x00' * (300 - len(dhcp_header + offer_bit + other_dhcp_options))
+        return dhcp_header + offer_bit + other_dhcp_options + padding
+    if message_type == 3:
+        padding = b'\x00' * (300 - len(dhcp_header + ack_bit + other_dhcp_options))
+        return dhcp_header + ack_bit + other_dhcp_options + padding
+
+def handle_dhcp_request(dhcpd_data, dhcpd_addr, ip_pool, server_ip, lease_time, server_socket, dhcpd_subnet_mask, dhcpd_broadcast_address, network, dhcpd_gateway_ip, dhcpd_dns_ip):
+    global leases  # Ensure we can access and modify the global 'leases' dictionary
+
+    try:
+        # Parse incoming data
+        transaction_id = struct.unpack("!I", dhcpd_data[4:8])[0]
+        mac_address = ':'.join(f"{b:02x}" for b in dhcpd_data[28:34])
+        log_verbose(f"Transaction ID: {transaction_id}, Client MAC: {mac_address}")
+
+        # Filter non-Grandstream devices
+        if not is_grandstream_device(mac_address):
+            log_verbose(f"Ignoring DHCP request from non-Grandstream device: {mac_address}")
+            return
+
+        # Extract DHCP Message Type (Option 53)
+        options = dhcpd_data[240:]  # Skip the fixed header to parse options
+        message_type = None
+        i = 0
+        while i < len(options):
+            option_type = options[i]
+            if option_type == 53:  # DHCP Message Type
+                message_type = options[i + 2]  # The value is 2 bytes ahead
+                break
+            i += 2 + options[i + 1]  # Move to the next option
+
+        if message_type == 1:  # DHCP DISCOVER
+            # Allocate an IP address
+            client_ip = ip_pool.pop(0) if mac_address not in leases else leases[mac_address]
+            leases[mac_address] = client_ip
+            log_verbose(f"Assigning IP {client_ip} to {mac_address}")
+
+            # Build and send DHCP OFFER packet
+            offer_packet = build_dhcp_packet(transaction_id, client_ip, server_ip, mac_address, lease_time, dhcpd_subnet_mask, dhcpd_broadcast_address, network, dhcpd_gateway_ip, dhcpd_dns_ip, message_type)
+            server_socket.sendto(offer_packet, (dhcpd_broadcast_address, 68))
+
+            log_verbose(f"DHCP OFFER sent to {mac_address} for IP {client_ip}")
+
+        elif message_type == 3:  # DHCP REQUEST
+            if mac_address in leases:
+                client_ip = leases[mac_address]
+                log_verbose(f"Client {mac_address} requested IP {client_ip}")
+
+                # Build and send DHCP ACK packet
+                ack_packet = build_dhcp_packet(transaction_id, client_ip, server_ip, mac_address, lease_time, dhcpd_subnet_mask, dhcpd_broadcast_address, network, dhcpd_gateway_ip, dhcpd_dns_ip, message_type)
+                server_socket.sendto(ack_packet, (dhcpd_broadcast_address, 68))
+                log_verbose(f"DHCP ACK sent to {mac_address} for IP {client_ip}")
+            else:
+                log_verbose(f"Client {mac_address} requested an unknown IP. Ignoring.")
+
+    except Exception as e:
+        print(f"Error processing request: {e}")
+
+def run_dhcp_server(ip_pool, server_ip, lease_time, dhcpd_subnet_mask, dhcpd_broadcast_address, network, dhcpd_gateway_ip, dhcpd_dns_ip):
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    server_socket.bind(("0.0.0.0", 67))
+    server_socket.settimeout(1.0)  # Set a timeout of 1 second for the socket
+
+    time.sleep(1.2)
+    log_verbose("DHCP server is running...")
+
+    try:
+        while True:
+            try:
+                dhcpd_data, dhcpd_addr = server_socket.recvfrom(1024)
+                log_verbose(f"Received data from {dhcpd_addr}")
+                handle_dhcp_request(dhcpd_data, dhcpd_addr, ip_pool, server_ip, lease_time, server_socket, dhcpd_subnet_mask, dhcpd_broadcast_address, network, dhcpd_gateway_ip, dhcpd_dns_ip)
+            except socket.timeout:
+                continue
+    except KeyboardInterrupt:
+        print("\nShutting down DHCP server.")
+    finally:
+        server_socket.close()
+
 def main():
-    global IPPBX_IP, INTERFACE_IP, extension_counter, SIP_AUTH_PASS ,start_ip, subnet_mask, gateway_ip, dns_ip, ip_mode
+    global IPPBX_IP, INTERFACE_IP, extension_counter, SIP_AUTH_PASS ,start_ip, subnet_mask, gateway_ip, dns_ip, ip_mode, dhcpd_start_ip, dhcpd_end_ip, leases
     loading()
     total_steps = 100
     print()
@@ -586,15 +781,67 @@ def main():
                     else:
                         break
                 else:
-                    print("Invalid IP address. Please enter a valid IPv4 address.")            
-            
+                    print("Invalid IP address. Please enter a valid IPv4 address.")
+
+    if args.dhcpd:
+        print("DHCP Server Configuration")
+        if dhcpd_start_ip == "":
+            while True:
+                dhcpd_start_ip = input("Enter the IP Phone starting IP address > ")
+                if is_valid_ip(dhcpd_start_ip):
+                    if is_valid_subnet_mask(dhcpd_start_ip):
+                        print("Entered value is Subnet Mask not IP Addresss")
+                        continue
+                    else:
+                        break
+                else:
+                    print("Invalid IP address. Please enter a valid IPv4 address.")
+        if dhcpd_end_ip == "":
+            while True:
+                dhcpd_end_ip = input("Enter the IP Phone starting IP address > ")
+                if is_valid_ip(dhcpd_end_ip):
+                    if is_valid_subnet_mask(dhcpd_end_ip):
+                        print("Entered value is Subnet Mask not IP Addresss")
+                        continue
+                    else:
+                        break
+                else:
+                    print("Invalid IP address. Please enter a valid IPv4 address.")
+
+        dhcpd_gateway_ip = gateway_ip
+        dhcpd_subnet_mask = subnet_mask
+        dhcpd_dns_ip = dns_ip
+        
+        lease_time = 7200  # Ensure this is an integer
+
+        network = ipaddress.IPv4Network(f"{dhcpd_gateway_ip}/{dhcpd_subnet_mask}", strict=False)
+        network_segment = str(network)
+        dhcpd_gateway_ip = ipaddress.IPv4Address(dhcpd_gateway_ip)
+        dhcpd_broadcast_address = str(network.broadcast_address)
+        dhcpd_subnet_mask = str(network.netmask)
+
+        try:
+            server_ip = get_local_ip(network_segment, network)
+            print(f"Automatically detected server IP: {server_ip}")
+        except ValueError as e:
+            print(e)
+            exit(1)
+
+        ip_pool = generate_ip_pool(network_segment, dhcpd_start_ip, dhcpd_end_ip, network)
+        log_verbose(f"IP pool generated: {ip_pool}")
+        print("Number of IP Address in Pool", len(ip_pool))
 
   
     # Run Servers
     Thread(target=sip_server, args=(site, SIP_AUTH_PASS, assingment_file_path ,start_ip, subnet_mask, gateway_ip, dns_ip,), daemon=True).start()
     Thread(target=https_server, args=(site,), daemon=True).start()
+    if args.dhcpd:
+        Thread(target=run_dhcp_server, args=(ip_pool, server_ip, lease_time, dhcpd_subnet_mask, dhcpd_broadcast_address, network, dhcpd_gateway_ip, dhcpd_dns_ip), daemon=True).start()
 
-    print("Starting SIP and HTTPs server")  # Print a newline    
+    if args.dhcpd:
+        print("Starting SIP, HTTPs and DHCP server")  # Print a newline    
+    else:
+        print("Starting SIP and HTTPs server")  # Print a newline    
     progress_bar(0, total_steps)
     
     # Simulate a task that takes time (e.g., reading files, processing data, etc.)
