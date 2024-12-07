@@ -4,6 +4,7 @@ import sys
 import re
 import ipaddress
 import os
+import csv
 import shutil
 import math
 import time
@@ -14,13 +15,12 @@ import ssl
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from threading import Thread
 
-version = "1.1.1" # Version of the script
+version = "1.1.3" # Version of the script
 
 # Variables for storing input parameters
 IPPBX_IP = ""
 loading_time = 0.01 # Time delay for the loading effect
-# Replace with the correct Ethernet interface IP
-INTERFACE_IP = ""  # Update this to match your Ethernet IP
+INTERFACE_IP = ""  
 extension_counter = ""  # Starting extension number
 start_ip = ""
 subnet_mask = ""
@@ -29,7 +29,6 @@ dns_ip = ""
 ip_mode = ""
 SIP_AUTH_PASS = ""
 provisioned_devices = {}
-#CONFIG_FOLDER = "zccgi"
 site_folder_map = {}  # Global mapping of site names to folder paths
 # Multicast and SIP Configuration
 MULTICAST_GROUP = "224.0.1.75"
@@ -55,6 +54,25 @@ ALLOWED_OUIS = [
     "C0:74:AD",
     "EC:74:D7",
 ]
+
+additional_cfg = {
+'102':'2',
+'64':'TZT-5:30',
+'122':'0',
+'414':'0',
+'52':'2',
+'104':'2',
+'2348':'1',
+'2397':'1',
+'26073':'0',
+'78':'0',
+'8350':'1',
+'8351':'1',
+'8446':'0',
+'33':'*97',
+'271':'1',
+'1558':'26'
+}
 
 # Function to check if input is numeric
 def is_numeric(input_str):
@@ -87,10 +105,11 @@ parser.add_argument("-g", help="Gateway IP Address")
 parser.add_argument("-a", help="Starting Account")
 parser.add_argument("-d", help="DNS IP Address")
 parser.add_argument("-i", type=int, help="IP Phones mode")
-parser.add_argument("-V", "--verbose", action="store_true", help="Enable verbose mode")
+parser.add_argument("-P", "--PCODE", action="store_true", help="Change P-CODEs")
 parser.add_argument("-D", "--dhcpd", action="store_true", help="Enable DHCP Server mode")
 parser.add_argument("-DS", help="Starting DHCP IP Address")
 parser.add_argument("-DE", help="End DHCP IP Address")
+parser.add_argument("-V", "--verbose", action="store_true", help="Enable verbose mode")
 
 # Parse the command-line arguments
 args = parser.parse_args()
@@ -100,7 +119,6 @@ if args.v:
     print("\nkgzcaps version: {}".format(version))
     sys.exit(0)
 
-# Model input validation
 if args.p:
     SIP_AUTH_PASS = args.p
 
@@ -264,104 +282,137 @@ def get_config_file(site):
         print(f"IP Phones configuration files and assingment-details.csv file will be stored in '{site}' folder")
         return (assingment_file_path, folder_path)
 
+def load_config_file(ip_mode):
+    """Load configuration values from config.csv based on mode."""
+    config_file_path = os.path.join("kgzcaps", "config.csv")
+    config_data = {}
 
-def generate_config_file(mac_address, extension, SIP_AUTH_PASS ):
+    if not os.path.exists(config_file_path):
+        print(f"[INFO] No config.csv file found in 'kgzcaps'. Dynamic assignment will be used.")
+        return config_data
+
+    with open(config_file_path, mode="r") as file:
+        reader = csv.reader(file)
+        next(reader, None)  # Skip the header row
+        for row in reader:
+            # Validate columns based on mode
+            if ip_mode == 1 and len(row) != 2:
+                print(f"[ERROR] Invalid row for DHCP mode: {row}")
+                continue
+            if ip_mode == 2 and len(row) != 3:
+                print(f"[ERROR] Invalid row for static mode: {row}")
+                continue
+
+            # Extract values
+            mac = row[0].strip().lower()
+            account = int(row[1].strip())
+            ip = row[2].strip() if ip_mode == 2 else None
+
+            # Store configuration
+            config_data[mac] = {"account": account}
+            if ip_mode == 2:
+                config_data[mac]["ip"] = ip
+
+    print(f"[INFO] Loaded configuration for {len(config_data)} devices from config.csv.")
+    return config_data
+
+def generate_config_file(mac_address, extension, SIP_AUTH_PASS ,ip , subnet_mask, gateway_ip, dns_ip, additional_cfg):
     """Generate configuration content dynamically."""
-    return f"""<?xml version="1.0" encoding="UTF-8" ?>
+    cfg_start = f"""<?xml version="1.0" encoding="UTF-8" ?>
 <gs_provision version="1">
     <mac>{mac_address}</mac>
-    <config version="1">
-        <P2>{SIP_AUTH_PASS}</P2>
-        <P102>2</P102>
-        <P30>{IPPBX_IP}</P30>
-        <P64>TZT-5:30</P64>
-        <P122>0</P122>
-        <P414>0</P414>
-        <P52>2</P52>
-        <P104>2</P104>
-        <P2348>1</P2348>
-        <P2397>1</P2397>
-        <P26073>0</P26073>
-        <P78>0</P78>
-        <P8350>1</P8350>
-        <P8351>2</P8351>
-        <P8446>0</P8446>
-        <P35>{extension}</P35>
-        <P270>{extension}</P270>
-        <P36>{extension}</P36>
-        <P34>{SIP_AUTH_PASS}</P34>
-        <P33>*97</P33>
-        <P271>1</P271>
-        <P48></P48>
-        <P47>{IPPBX_IP}</P47>
-        <P1558>26</P1558>
+    <config version="1">"""
+    
+    unique_cfg = {
+    '2':SIP_AUTH_PASS,
+    '30':IPPBX_IP,
+    '35':extension,
+    '270':extension,
+    '36':extension,
+    '34':SIP_AUTH_PASS,
+    '47':IPPBX_IP
+    }
+
+    if ip_mode == 2:
+        static_mode_cfg = {
+        '8':'1',
+        '9':ip.split('.')[0],
+        '10':ip.split('.')[1],
+        '11':ip.split('.')[2],
+        '12':ip.split('.')[3],
+        '13':subnet_mask.split('.')[0],
+        '14':subnet_mask.split('.')[1],
+        '15':subnet_mask.split('.')[2],
+        '16':subnet_mask.split('.')[3],
+        '17':gateway_ip.split('.')[0],
+        '18':gateway_ip.split('.')[1],
+        '19':gateway_ip.split('.')[2],
+        '20':gateway_ip.split('.')[3],
+        '21':dns_ip.split('.')[0],
+        '22':dns_ip.split('.')[1],
+        '23':dns_ip.split('.')[2],
+        '24':dns_ip.split('.')[3]
+        }
+    
+    # Add any additional options provided by the user
+    cfg_addition = ""
+    for key, value in unique_cfg.items(): 
+        cfg_addition += f"""\n        <P{key}>{value}</P{key}>"""
+    for key, value in additional_cfg.items(): 
+        cfg_addition += f"""\n        <P{key}>{value}</P{key}>"""
+    if ip_mode == 2:
+        for key, value in static_mode_cfg.items(): 
+            cfg_addition += f"""\n        <P{key}>{value}</P{key}>"""
+
+    cfg_end = """
     </config>
 </gs_provision>
 """
 
-def generate_config_file_for_static_mode(mac_address, extension, SIP_AUTH_PASS ,ip , subnet_mask, gateway_ip, dns_ip):
-    """Generate configuration content dynamically."""
-    return f"""<?xml version="1.0" encoding="UTF-8" ?>
-<gs_provision version="1">
-    <mac>{mac_address}</mac>
-    <config version="1">
-        <P2>{SIP_AUTH_PASS}</P2>
-        <P102>2</P102>
-        <P30>{IPPBX_IP}</P30>
-        <P64>TZT-5:30</P64>
-        <P122>0</P122>
-        <P414>0</P414>
-        <P52>2</P52>
-        <P104>2</P104>
-        <P2348>1</P2348>
-        <P2397>1</P2397>
-        <P26073>0</P26073>
-        <P78>0</P78>
-        <P8350>1</P8350>
-        <P8351>2</P8351>
-        <P8446>0</P8446>
-        <P35>{extension}</P35>
-        <P270>{extension}</P270>
-        <P36>{extension}</P36>
-        <P34>{SIP_AUTH_PASS}</P34>
-        <P33>*97</P33>
-        <P271>1</P271>
-        <P48></P48>
-        <P47>{IPPBX_IP}</P47>
-        <P1558>26</P1558>
-        <P8>1</P8>
-        <P9>{ip.split('.')[0]}</P9>
-        <P10>{ip.split('.')[1]}</P10>
-        <P11>{ip.split('.')[2]}</P11>
-        <P12>{ip.split('.')[3]}</P12>
-        <P13>{subnet_mask.split('.')[0]}</P13>
-        <P14>{subnet_mask.split('.')[1]}</P14>
-        <P15>{subnet_mask.split('.')[2]}</P15>
-        <P16>{subnet_mask.split('.')[3]}</P16>
-        <P17>{gateway_ip.split('.')[0]}</P17>
-        <P18>{gateway_ip.split('.')[1]}</P18>
-        <P19>{gateway_ip.split('.')[2]}</P19>
-        <P20>{gateway_ip.split('.')[3]}</P20>        
-        <P21>{dns_ip.split('.')[0]}</P21>        
-        <P22>{dns_ip.split('.')[1]}</P22>        
-        <P23>{dns_ip.split('.')[2]}</P23>        
-        <P24>{dns_ip.split('.')[3]}</P24>        
-    </config>
-</gs_provision>
-"""
+    return cfg_start + cfg_addition + cfg_end
 
-def save_config_file(mac_address, extension_counter, site, SIP_AUTH_PASS ,ip , subnet_mask, gateway_ip, dns_ip):
+def generate_from_config_file(site, SIP_AUTH_PASS , start_ip, subnet_mask, gateway_ip, dns_ip, additional_cfg):
+    folder = site_folder_map.get(site)
+    if not folder:
+        print(f"Error: Site {site} folder not found.")
+        return
+    
+    device_config = load_config_file(ip_mode)
+    log_verbose(device_config)
+    
+    if ip_mode == 1:
+        for mac, value in device_config.items():     
+            account = value.get("account", {})
+            print(mac.upper(), "-", account)
+            ip = "0.0.0.0"
+            config_content = generate_config_file(mac, account, SIP_AUTH_PASS, ip, subnet_mask, gateway_ip, dns_ip, additional_cfg)
+            provisioned_devices[mac] = account
+            file_name = os.path.join(folder, f"cfg{mac}.xml")
+            with open(file_name, "w") as config_file:
+                config_file.write(config_content)
+            log_verbose(f"Configuration file created: {file_name}")
+        
+    if ip_mode == 2:
+        for mac, value in device_config.items():     
+            account = value.get("account", {})
+            ip = value.get("ip", {})
+            print(mac.upper(), "-", account, "-", ip)
+            config_content = generate_config_file(mac, account, SIP_AUTH_PASS, ip , subnet_mask, gateway_ip, dns_ip, additional_cfg)
+            provisioned_devices[mac] = account
+            file_name = os.path.join(folder, f"cfg{mac}.xml")
+            with open(file_name, "w") as config_file:
+                config_file.write(config_content)
+            log_verbose(f"Configuration file created: {file_name}")
+
+def save_config_file(mac_address, extension_counter, site, SIP_AUTH_PASS ,ip , subnet_mask, gateway_ip, dns_ip, additional_cfg):
     """Save configuration file in the specific site folder."""
     folder = site_folder_map.get(site)
     if not folder:
         print(f"Error: Site {site} folder not found.")
         return
-
+    
     file_name = os.path.join(folder, f"cfg{mac_address}.xml")
-    if ip_mode == 1:
-        config_content = generate_config_file(mac_address, extension_counter, SIP_AUTH_PASS )
-    if ip_mode == 2:
-        config_content = generate_config_file_for_static_mode(mac_address, extension_counter, SIP_AUTH_PASS ,ip , subnet_mask, gateway_ip, dns_ip)
+    config_content = generate_config_file(mac_address, extension_counter, SIP_AUTH_PASS, ip , subnet_mask, gateway_ip, dns_ip, additional_cfg)
     with open(file_name, "w") as config_file:
         config_file.write(config_content)
     log_verbose(f"Configuration file created: {file_name}")
@@ -391,7 +442,7 @@ def send_notify(addr, call_id, cseq, port, from_tag, to_tag, site):
         log_verbose(f"Sent NOTIFY to {addr} from port {port}")
 
 # Function to handle SIP SUBSCRIBE
-def sip_server(site, SIP_AUTH_PASS, assingment_file_path ,start_ip, subnet_mask, gateway_ip, dns_ip):
+def sip_server(site, SIP_AUTH_PASS, assingment_file_path ,start_ip, subnet_mask, gateway_ip, dns_ip, additional_cfg):
     """Start the SIP server to handle SUBSCRIBE requests."""
     global extension_counter
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -421,10 +472,13 @@ def sip_server(site, SIP_AUTH_PASS, assingment_file_path ,start_ip, subnet_mask,
             # Extract MAC address from SUBSCRIBE packet (simulate this for now)
             mac = headers[2].split(":")[2].split("MAC%3A")[1].split("@")[0]
             mac_address = mac.lower()
+            log_verbose(provisioned_devices)
             if mac_address not in provisioned_devices:
                 # Assign a new extension and save the configuration file
                 provisioned_devices[mac_address] = extension_counter
-                save_config_file(mac_address, extension_counter, site, SIP_AUTH_PASS ,str(start_ip) , subnet_mask, gateway_ip, dns_ip)
+
+                save_config_file(mac_address, extension_counter, site, SIP_AUTH_PASS ,str(start_ip), subnet_mask, gateway_ip, dns_ip, additional_cfg)
+                
                 with open(assingment_file_path, mode='a') as file:
                     if ip_mode == 1:
                         print("[LOG]", mac, "Assigned Extension", extension_counter)                        
@@ -517,7 +571,7 @@ def https_server(site):
     ssl_context.load_cert_chain(certfile=TLS_CERT, keyfile=TLS_KEY)
     httpd.socket = ssl_context.wrap_socket(httpd.socket, server_side=True)
 
-    time.sleep(1)
+    time.sleep(1.4)
     log_verbose(f"HTTPs Server listening on port {HTTPS_PORT}")
     httpd.serve_forever()
 
@@ -536,7 +590,6 @@ def get_local_ip(network_segment, network):
         if ipaddress.IPv4Address(ip) in network:
             return ip
     raise ValueError("No local IP matches the specified network segment.")
-
 
 def generate_ip_pool(network_segment, dhcpd_start_ip, dhcpd_end_ip, network):
     """
@@ -782,6 +835,20 @@ def main():
                         break
                 else:
                     print("Invalid IP address. Please enter a valid IPv4 address.")
+    
+    if args.PCODE:
+        for key, value in additional_cfg.items():     
+            print(f"""P{key} - {value}""")
+        add_p_code = input("Do you want to add or modify P codes? (yes/no): ").strip().lower()
+        if add_p_code not in ['yes', 'no']:
+            print("[ERROR] Invalid input. continuing...")
+        while add_p_code == "yes":
+            p_code = input("P Code: ")
+            p_value = input("P Code Vlaue: ")
+            additional_cfg[p_code] = p_value
+            add_p_code = input("Do you want to add or modify another P code? (yes/no): ").strip().lower()
+            for key, value in additional_cfg.items():     
+                print(f"""P{key} - {value}""")
 
     if args.dhcpd:
         print("DHCP Server Configuration")
@@ -831,9 +898,10 @@ def main():
         log_verbose(f"IP pool generated: {ip_pool}")
         print("Number of IP Address in Pool", len(ip_pool))
 
-  
+    generate_from_config_file(site, SIP_AUTH_PASS , str(start_ip), subnet_mask, gateway_ip, dns_ip, additional_cfg)
+
     # Run Servers
-    Thread(target=sip_server, args=(site, SIP_AUTH_PASS, assingment_file_path ,start_ip, subnet_mask, gateway_ip, dns_ip,), daemon=True).start()
+    Thread(target=sip_server, args=(site, SIP_AUTH_PASS, assingment_file_path ,start_ip, subnet_mask, gateway_ip, dns_ip, additional_cfg,), daemon=True).start()
     Thread(target=https_server, args=(site,), daemon=True).start()
     if args.dhcpd:
         Thread(target=run_dhcp_server, args=(ip_pool, server_ip, lease_time, dhcpd_subnet_mask, dhcpd_broadcast_address, network, dhcpd_gateway_ip, dhcpd_dns_ip), daemon=True).start()
