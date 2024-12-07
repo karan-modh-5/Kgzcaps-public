@@ -1,6 +1,6 @@
 # KGZCAPS - Grandstream Zero Configuration Auto Provisioning Server
 
-**Version:** 1.1.1
+**Version:** 1.1.3
 
 KGZCAPS is an advanced provisioning server for Grandstream IP phones.
 With the addition of a built-in DHCP server mode, it provides end-to-end automation for configuring IP phones in both static and dynamic IP environments.
@@ -57,6 +57,21 @@ With the addition of a built-in DHCP server mode, it provides end-to-end automat
 
 ---
 
+### New Features
+
+1. **Dynamic P-CODE Configuration**:
+   - Allows you to dynamically add or modify P-CODES directly from the script interface.
+   - P-CODEs are customizable and can be extended per your requirements.
+
+2. **Provisioning from `config.csv`**:
+   - Reads from a `config.csv` file in the `kgzcaps` folder.
+   - Supports:
+     - **Normal Mode**: Requires 2 columns (`MAC Address`, `Account Number`).
+     - **Static Mode**: Requires 3 columns (`MAC Address`, `Account Number`, `IP Address`).
+   - Automatically applies these configurations during provisioning.
+
+---
+
 ## Requirements
 
 - **Python 3.7 or Higher**
@@ -92,8 +107,26 @@ Pass arguments to automate the setup:
 ```bash
 python kgzcaps.py -u 192.168.1.1 -p secret -s 192.168.1.100 -a 400 -i 2 -n 255.255.255.0 -g 192.168.1.1 -d 8.8.8.8 -D -DS 192.168.1.101 -DE 192.168.1.200
 ```
-![Usage-1](https://github.com/user-attachments/assets/7e4cf2ba-848e-463c-acea-b93c4eb77378)
-![Usage-2](https://github.com/user-attachments/assets/b778f949-817f-417c-9045-f0044ac178d2)
+
+---
+
+## Configuration via `config.csv`
+
+### Normal Mode (DHCP)
+The `config.csv` should contain two columns:
+```
+MAC Address,Account Number
+EC74D7427228,400
+EC74D7427229,401
+```
+
+### Static Mode
+The `config.csv` should contain three columns:
+```
+MAC Address,Account Number,IP Address
+EC74D7427228,400,192.168.1.100
+EC74D7427229,401,192.168.1.101
+```
 
 ---
 
