@@ -15,7 +15,7 @@ import ssl
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from threading import Thread
 
-version = "1.1.3" # Version of the script
+version = "1.1.4" # Version of the script
 
 # Variables for storing input parameters
 IPPBX_IP = ""
@@ -251,12 +251,27 @@ def choose_interface(interfaces):
         except ValueError:
             print("Invalid input. Please enter a number.")
 
-def get_config_file(site):
+def get_config_file(site, TLS_CERT, TLS_KEY):
     """Get or create the folder path for a site."""
     kgzcaps = "kgzcaps"
     script_directory = os.getcwd()  # Get the current script directory
     folder_path = os.path.join(script_directory, kgzcaps, site)  # Include kgzcaps in the path
-    
+    tls_cert_path = os.path.join(script_directory, TLS_CERT)
+    tls_key_path = os.path.join(script_directory, TLS_KEY)
+
+    try:
+        with open(tls_cert_path, "r") as file:
+            log_verbose(f"Found '{tls_cert_path}'in the '{kgzcaps}' folder.")
+    except FileNotFoundError:
+            print(f"tls_cert.pem file not found in the '{kgzcaps}' folder.")
+            sys.exit(0)
+    try:
+        with open(tls_key_path, "r") as file:
+            log_verbose(f"Found '{tls_key_path}'in the '{kgzcaps}' folder.")
+    except FileNotFoundError:
+            print(f"tls_key.pem file not found in the '{kgzcaps}' folder.")
+            sys.exit(0)
+
     # Update the global mapping
     site_folder_map[site] = folder_path
 
@@ -746,7 +761,7 @@ def run_dhcp_server(ip_pool, server_ip, lease_time, dhcpd_subnet_mask, dhcpd_bro
         server_socket.close()
 
 def main():
-    global IPPBX_IP, INTERFACE_IP, extension_counter, SIP_AUTH_PASS ,start_ip, subnet_mask, gateway_ip, dns_ip, ip_mode, dhcpd_start_ip, dhcpd_end_ip, leases
+    global IPPBX_IP, INTERFACE_IP, extension_counter, SIP_AUTH_PASS ,start_ip, subnet_mask, gateway_ip, dns_ip, ip_mode, dhcpd_start_ip, dhcpd_end_ip, leases, TLS_CERT, TLS_KEY
     loading()
     total_steps = 100
     print()
@@ -755,7 +770,7 @@ def main():
     print(f"You have chosen Interface: {interface}, IP Address: {INTERFACE_IP}")
 
     site = input("Enter Site Name > ")
-    path = get_config_file(site)
+    path = get_config_file(site, TLS_CERT, TLS_KEY)
     assingment_file_path, site_folder_path = path
 
     if IPPBX_IP == "":
@@ -929,8 +944,8 @@ def main():
         print("\nkgzcaps Stop Running.")
 
 try:
-    if __name__ == "__main__":
-        main()
+if __name__ == "__main__":
+    main()
 except:
     print("\nkgzcaps Stop Running.")
 
