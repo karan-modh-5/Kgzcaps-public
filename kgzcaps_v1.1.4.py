@@ -943,11 +943,11 @@ def main():
     except KeyboardInterrupt:
         print("\nkgzcaps Stop Running.")
 
-#try:
-if __name__ == "__main__":
-    main()
-#except:
-#    print("\nkgzcaps Stop Running.")
+try:
+    if __name__ == "__main__":
+        main()
+except:
+    print("\nkgzcaps Stop Running.")
 
-#finally:
-#    print("\n[kgzcaps_v{}]:".format(version))
+finally:
+    print("\n[kgzcaps_v{}]:".format(version))
