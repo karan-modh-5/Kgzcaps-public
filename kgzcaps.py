@@ -944,8 +944,8 @@ def main():
         print("\nkgzcaps Stop Running.")
 
 try:
-if __name__ == "__main__":
-    main()
+    if __name__ == "__main__":
+        main()
 except:
     print("\nkgzcaps Stop Running.")
 
