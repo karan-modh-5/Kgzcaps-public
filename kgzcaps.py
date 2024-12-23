@@ -14,8 +14,9 @@ import struct
 import ssl
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from threading import Thread
+from OpenSSL import crypto
 
-version = "1.1.4" # Version of the script
+version = "1.1.5" # Version of the script
 
 # Variables for storing input parameters
 IPPBX_IP = ""
@@ -170,6 +171,25 @@ def log_verbose(message):
     if VERBOSE_MODE:
         print(f"[VERBOSE] {message}")
 
+def generate_tls_cert(cert_file, key_file):
+    if not os.path.exists(cert_file) or not os.path.exists(key_file):
+        print("tls cert and tls key files are not found in kgzcaps folder.")
+        key = crypto.PKey()
+        key.generate_key(crypto.TYPE_RSA, 2048)
+        cert = crypto.X509()
+        cert.get_subject().CN = "kgzcaps"
+        cert.set_serial_number(1000)
+        cert.gmtime_adj_notBefore(0)
+        cert.gmtime_adj_notAfter(10 * 365 * 24 * 60 * 60)  # 10 years
+        cert.set_issuer(cert.get_subject())
+        cert.set_pubkey(key)
+        cert.sign(key, 'sha256')
+        
+        with open(cert_file, "wb") as cert_out:
+            cert_out.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+        with open(key_file, "wb") as key_out:
+            key_out.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
+
 # Function to display a progress bar
 def progress_bar(progress, total):
     percent = 100 * (progress / float(total))
@@ -259,18 +279,7 @@ def get_config_file(site, TLS_CERT, TLS_KEY):
     tls_cert_path = os.path.join(script_directory, TLS_CERT)
     tls_key_path = os.path.join(script_directory, TLS_KEY)
 
-    try:
-        with open(tls_cert_path, "r") as file:
-            log_verbose(f"Found '{tls_cert_path}'in the '{kgzcaps}' folder.")
-    except FileNotFoundError:
-            print(f"tls_cert.pem file not found in the '{kgzcaps}' folder.")
-            sys.exit(0)
-    try:
-        with open(tls_key_path, "r") as file:
-            log_verbose(f"Found '{tls_key_path}'in the '{kgzcaps}' folder.")
-    except FileNotFoundError:
-            print(f"tls_key.pem file not found in the '{kgzcaps}' folder.")
-            sys.exit(0)
+    generate_tls_cert(TLS_CERT, TLS_KEY)
 
     # Update the global mapping
     site_folder_map[site] = folder_path
