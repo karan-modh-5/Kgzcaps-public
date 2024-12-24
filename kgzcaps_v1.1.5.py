@@ -905,6 +905,9 @@ def main():
         
         lease_time = 7200  # Ensure this is an integer
 
+        if not dhcpd_gateway_ip:
+            print("Gateway ip address is not entered.")
+            sys.exit(1)        
         network = ipaddress.IPv4Network(f"{dhcpd_gateway_ip}/{dhcpd_subnet_mask}", strict=False)
         network_segment = str(network)
         dhcpd_gateway_ip = ipaddress.IPv4Address(dhcpd_gateway_ip)
