@@ -14,7 +14,10 @@ import struct
 import ssl
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from threading import Thread
-from OpenSSL import crypto
+try:
+    from OpenSSL import crypto
+except ValueError:
+    print("pyOpenSSL is not installed please run: pip install pyOpenSSL")
 
 version = "1.1.6" # Version of the script
 
@@ -172,26 +175,23 @@ def log_verbose(message):
         print(f"[VERBOSE] {message}")
 
 def generate_tls_cert(cert_file, key_file):
-    try:
-        if not os.path.exists(cert_file) or not os.path.exists(key_file):
-            print("tls cert and tls key files are not found in kgzcaps folder.")
-            key = crypto.PKey()
-            key.generate_key(crypto.TYPE_RSA, 2048)
-            cert = crypto.X509()
-            cert.get_subject().CN = "kgzcaps"
-            cert.set_serial_number(1000)
-            cert.gmtime_adj_notBefore(0)
-            cert.gmtime_adj_notAfter(10 * 365 * 24 * 60 * 60)  # 10 years
-            cert.set_issuer(cert.get_subject())
-            cert.set_pubkey(key)
-            cert.sign(key, 'sha256')
-            
-            with open(cert_file, "wb") as cert_out:
-                cert_out.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
-            with open(key_file, "wb") as key_out:
-                key_out.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
-    except ValueError:
-        print("pyOpenSSL is not installed please run: pip install pyOpenSSL")
+    if not os.path.exists(cert_file) or not os.path.exists(key_file):
+        print("tls cert and tls key files are not found in kgzcaps folder.")
+        key = crypto.PKey()
+        key.generate_key(crypto.TYPE_RSA, 2048)
+        cert = crypto.X509()
+        cert.get_subject().CN = "kgzcaps"
+        cert.set_serial_number(1000)
+        cert.gmtime_adj_notBefore(0)
+        cert.gmtime_adj_notAfter(10 * 365 * 24 * 60 * 60)  # 10 years
+        cert.set_issuer(cert.get_subject())
+        cert.set_pubkey(key)
+        cert.sign(key, 'sha256')
+        
+        with open(cert_file, "wb") as cert_out:
+            cert_out.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+        with open(key_file, "wb") as key_out:
+            key_out.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
 
 # Function to display a progress bar
 def progress_bar(progress, total):
