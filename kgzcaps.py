@@ -16,8 +16,10 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from threading import Thread
 try:
     from OpenSSL import crypto
-except ValueError:
-    print("pyOpenSSL is not installed please run: pip install pyOpenSSL")
+except ModuleNotFoundError:
+    print("The 'pyOpenSSL' library is not installed. Please install it using the following command:") 
+    print("pip install pyOpenSSL") 
+    exit(1)
 
 version = "1.1.6" # Version of the script
 
