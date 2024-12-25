@@ -16,7 +16,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from threading import Thread
 from OpenSSL import crypto
 
-version = "1.1.5" # Version of the script
+version = "1.1.6" # Version of the script
 
 # Variables for storing input parameters
 IPPBX_IP = ""
@@ -172,23 +172,26 @@ def log_verbose(message):
         print(f"[VERBOSE] {message}")
 
 def generate_tls_cert(cert_file, key_file):
-    if not os.path.exists(cert_file) or not os.path.exists(key_file):
-        print("tls cert and tls key files are not found in kgzcaps folder.")
-        key = crypto.PKey()
-        key.generate_key(crypto.TYPE_RSA, 2048)
-        cert = crypto.X509()
-        cert.get_subject().CN = "kgzcaps"
-        cert.set_serial_number(1000)
-        cert.gmtime_adj_notBefore(0)
-        cert.gmtime_adj_notAfter(10 * 365 * 24 * 60 * 60)  # 10 years
-        cert.set_issuer(cert.get_subject())
-        cert.set_pubkey(key)
-        cert.sign(key, 'sha256')
-        
-        with open(cert_file, "wb") as cert_out:
-            cert_out.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
-        with open(key_file, "wb") as key_out:
-            key_out.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
+    try:
+        if not os.path.exists(cert_file) or not os.path.exists(key_file):
+            print("tls cert and tls key files are not found in kgzcaps folder.")
+            key = crypto.PKey()
+            key.generate_key(crypto.TYPE_RSA, 2048)
+            cert = crypto.X509()
+            cert.get_subject().CN = "kgzcaps"
+            cert.set_serial_number(1000)
+            cert.gmtime_adj_notBefore(0)
+            cert.gmtime_adj_notAfter(10 * 365 * 24 * 60 * 60)  # 10 years
+            cert.set_issuer(cert.get_subject())
+            cert.set_pubkey(key)
+            cert.sign(key, 'sha256')
+            
+            with open(cert_file, "wb") as cert_out:
+                cert_out.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+            with open(key_file, "wb") as key_out:
+                key_out.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
+    except ValueError:
+        print("pyOpenSSL is not installed please run: pip install pyOpenSSL")
 
 # Function to display a progress bar
 def progress_bar(progress, total):
@@ -279,8 +282,6 @@ def get_config_file(site, TLS_CERT, TLS_KEY):
     tls_cert_path = os.path.join(script_directory, TLS_CERT)
     tls_key_path = os.path.join(script_directory, TLS_KEY)
 
-    generate_tls_cert(TLS_CERT, TLS_KEY)
-
     # Update the global mapping
     site_folder_map[site] = folder_path
 
@@ -290,6 +291,8 @@ def get_config_file(site, TLS_CERT, TLS_KEY):
         print(f"Folder '{folder_path}' created successfully.")
     else:
         print(f"Folder '{folder_path}' already exists.")
+
+    generate_tls_cert(TLS_CERT, TLS_KEY)
 
     # Set file paths for output files
     assingment_file_name = "assingment-details.csv"
@@ -443,6 +446,10 @@ def save_config_file(mac_address, extension_counter, site, SIP_AUTH_PASS ,ip , s
 
 # Function to send NOTIFY packet
 def send_notify(addr, call_id, cseq, port, from_tag, to_tag, site):
+    body_length_without_ip = 24
+    ip_length = len(INTERFACE_IP)
+    body_length = body_length_without_ip + ip_length
+    log_verbose(f"Notify packet body length: {body_length}")
     notify_message = (
         f"NOTIFY sip:{addr[0]}:{addr[1]} SIP/2.0\r\n"
         f"Via: SIP/2.0/UDP {INTERFACE_IP}:{port};branch=z9hG4bK1771679954\r\n"
@@ -455,9 +462,9 @@ def send_notify(addr, call_id, cseq, port, from_tag, to_tag, site):
         f"Max-Forwards: 70\r\n"
         f"User-Agent: Grandstream UCM6302V1.3A 1.0.27.10\r\n"
         f"Event: ua-profile\r\n"
-        f"Content-Length: 34\r\n"
+        f"Content-Length: {body_length}\r\n"
         f"\r\n"
-        f"https://{INTERFACE_IP}:{HTTPS_PORT}/zccgi/\r\n"
+        f"https://{INTERFACE_IP}:{HTTPS_PORT}/kgzcaps/\r\n"
     )
 
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as notify_socket:
@@ -515,7 +522,7 @@ def sip_server(site, SIP_AUTH_PASS, assingment_file_path ,start_ip, subnet_mask,
                 extension_counter += 1
 
             get_branch = (headers[1]).split(";")[1].split("branch=")[1]
-            call_id = next((h.split(": ")[1] for h in headers if h.startswith("Call-ID:")), "259599202@192.168.43.160")
+            call_id = next((h.split(": ")[1] for h in headers if h.startswith("Call-ID:")))
             cseq = next((h.split(": ")[1].split(" ")[0] for h in headers if h.startswith("CSeq:")), "1")
             from_header = next((h for h in headers if h.startswith("From:")), "")
             from_tag = from_header.split("tag=")[-1] if "tag=" in from_header else "default-from-tag"
@@ -531,7 +538,7 @@ def sip_server(site, SIP_AUTH_PASS, assingment_file_path ,start_ip, subnet_mask,
                 f"Call-ID: {call_id}\r\n"
                 f"CSeq: {cseq} SUBSCRIBE\r\n"
                 f"Contact: <sip:{INTERFACE_IP}:{RESPONSE_PORT}>\r\n"
-                "Event: ua-profile;profile-type=\"device\";vendor=\"Grandstream\";model=\"GRP2601P\";version=\"1.0.5.55\"\r\n"
+                "Event: ua-profile;profile-type=\"device\";vendor=\"Grandstream\";model=\"GRP2601P\";version=\"1.0.5.68\"\r\n"
                 "User-Agent: Grandstream UCM630X\r\n"
                 "Expires: 0\r\n"
                 "Content-Length: 0\r\n"
@@ -556,7 +563,7 @@ class ConfigFileHandler(SimpleHTTPRequestHandler):
         log_verbose(f"Requested path: {self.path}")
         log_verbose(f"Normalized path: {requested_file}")
 
-        if requested_file.startswith("zccgi/cfg") and requested_file.endswith(".xml"):
+        if requested_file.startswith("kgzcaps/cfg") and requested_file.endswith(".xml"):
             mac_address = requested_file.split("cfg")[-1].replace(".xml", "")
             log_verbose(f"Extracted MAC address: {mac_address}")
 
@@ -878,7 +885,7 @@ def main():
         print("DHCP Server Configuration")
         if dhcpd_start_ip == "":
             while True:
-                dhcpd_start_ip = input("Enter the IP Phone starting IP address > ")
+                dhcpd_start_ip = input("Enter DHCP Starting IP address > ")
                 if is_valid_ip(dhcpd_start_ip):
                     if is_valid_subnet_mask(dhcpd_start_ip):
                         print("Entered value is Subnet Mask not IP Addresss")
@@ -889,7 +896,7 @@ def main():
                     print("Invalid IP address. Please enter a valid IPv4 address.")
         if dhcpd_end_ip == "":
             while True:
-                dhcpd_end_ip = input("Enter the IP Phone starting IP address > ")
+                dhcpd_end_ip = input("Enter DHCP Ending IP address > ")
                 if is_valid_ip(dhcpd_end_ip):
                     if is_valid_subnet_mask(dhcpd_end_ip):
                         print("Entered value is Subnet Mask not IP Addresss")
@@ -907,7 +914,7 @@ def main():
 
         if not dhcpd_gateway_ip:
             print("Gateway ip address is not entered.")
-            sys.exit(1)        
+            sys.exit(1)
         network = ipaddress.IPv4Network(f"{dhcpd_gateway_ip}/{dhcpd_subnet_mask}", strict=False)
         network_segment = str(network)
         dhcpd_gateway_ip = ipaddress.IPv4Address(dhcpd_gateway_ip)
@@ -959,7 +966,7 @@ try:
     if __name__ == "__main__":
         main()
 except:
-    print("\nkgzcaps Stop Running.")
+   print("\nkgzcaps Stop Running.")
 
 finally:
     print("\n[kgzcaps_v{}]:".format(version))
