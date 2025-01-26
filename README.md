@@ -166,3 +166,8 @@ EC74D7427229,401,192.168.1.101
    - Ensure the server's IP is within the network segment.
 
 ---
+
+## Download
+[Kgzcaps.py](https://karan-modh.tech/download/kgzcaps.py)
+
+---
