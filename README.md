@@ -1,6 +1,6 @@
 # KGZCAPS - Grandstream Zero Configuration Auto Provisioning Server
 
-**Version:** 1.1.3
+**Version:** 1.1.8
 
 KGZCAPS is an advanced provisioning server for Grandstream IP phones.
 With the addition of a built-in DHCP server mode, it provides end-to-end automation for configuring IP phones in both static and dynamic IP environments.
@@ -39,7 +39,16 @@ With the addition of a built-in DHCP server mode, it provides end-to-end automat
 6. **Secure HTTPS Configuration Delivery**:
    - Delivers configuration files over HTTPS (TLS 1.2).
 
-7. **Interactive and Command-Line Options**:
+7. **Pre-configuration profiles**:
+   - Support for pre-configuration profiles has been introduced.
+
+8. **Configuration update mode**:
+   - enabling the dynamic selection of specific configurations without the need to reconfigure or alter the SIP account.  
+
+9. **verbose mode**:
+   - A verbose mode has been added to enhance troubleshooting capabilities.
+     
+10. **Interactive and Command-Line Options**:
    - Interactive prompts for IP addresses, site names, and other parameters.
    - Command-line arguments for automation:
      - `-u`: IPPBX IP Address
@@ -50,6 +59,9 @@ With the addition of a built-in DHCP server mode, it provides end-to-end automat
      - `-a`: Starting SIP User ID
      - `-d`: DNS IP Address
      - `-i`: IP Phone Mode (1: DHCP, 2: Static)
+     - `-Q`: Without SIP Account
+     - `-R`: --RESET, Remove Additional P-CODEs
+     - `-P`: --PCODE, Change P-CODEs
      - `-D`: Enable DHCP Server mode
      - `-DS`: Starting DHCP IP Address
      - `-DE`: End DHCP IP Address
@@ -70,6 +82,11 @@ With the addition of a built-in DHCP server mode, it provides end-to-end automat
      - **Static Mode**: Requires 3 columns (`MAC Address`, `Account Number`, `IP Address`).
    - Automatically applies these configurations during provisioning.
 
+3. **Without SIP Account**:
+   - A new configuration update mode has been implemented, enabling the dynamic selection of specific configurations without the need to reconfigure or alter the SIP account.
+
+4. **RESET mode**
+   - Allows provisioning without preconfigured P-CODE.
 ---
 
 ## Requirements
@@ -164,6 +181,8 @@ EC74D7427229,401,192.168.1.101
 4. **DHCP Server Not Working**:
    - Check if the DHCP port (67) is in use by another service.
    - Ensure the server's IP is within the network segment.
+
+---
 
 ---
 
